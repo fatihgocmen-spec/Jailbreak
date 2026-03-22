@@ -38,25 +38,12 @@ namespace Jailbreak.LastRequest;
 public class LastRequestManager(ILRLocale messages, IServiceProvider provider)
   : ILastRequestManager, IDamageBlocker {
   
-  // FIX: Timer-Sprung deaktiviert (0 = Zeit bleibt wie in der Config)
-  public static readonly FakeConVar<int> CV_LR_BASE_TIME =
-    new("css_jb_lr_time_base", "Round time to set when LR is activated", 0);
-
-  public static readonly FakeConVar<int> CV_LR_BONUS_TIME =
-    new("css_jb_lr_time_per_lr", "Additional round time to add", 0);
-
-  public static readonly FakeConVar<int> CV_LR_GUARD_TIME =
-    new("css_jb_lr_time_per_guard", "Additional time per guard", 0);
-
-  public static readonly FakeConVar<int> CV_PRISONER_TO_LR =
-    new("css_jb_lr_activate_lr_at", "Prisoners for LR", 2,
-      ConVarFlags.FCVAR_NONE, new RangeValidator<int>(1, 32));
-
-  public static readonly FakeConVar<int> CV_MIN_PLAYERS_FOR_CREDITS =
-    new("css_jb_min_players_for_credits", "Min players for credits", 5);
-
-  public static readonly FakeConVar<int> CV_MAX_TIME_FOR_LR =
-    new("css_jb_max_time_for_lr", "Max round time during LR", 0);
+  public static readonly FakeConVar<int> CV_LR_BASE_TIME = new("css_jb_lr_time_base", "Round time to set when LR is activated", 0);
+  public static readonly FakeConVar<int> CV_LR_BONUS_TIME = new("css_jb_lr_time_per_lr", "Additional round time to add", 0);
+  public static readonly FakeConVar<int> CV_LR_GUARD_TIME = new("css_jb_lr_time_per_guard", "Additional time per guard", 0);
+  public static readonly FakeConVar<int> CV_PRISONER_TO_LR = new("css_jb_lr_activate_lr_at", "Prisoners for LR", 2, ConVarFlags.FCVAR_NONE, new RangeValidator<int>(1, 32));
+  public static readonly FakeConVar<int> CV_MIN_PLAYERS_FOR_CREDITS = new("css_jb_min_players_for_credits", "Min players for credits", 5);
+  public static readonly FakeConVar<int> CV_MAX_TIME_FOR_LR = new("css_jb_max_time_for_lr", "Max round time during LR", 0);
 
   private readonly IRainbowColorizer rainbowColorizer = provider.GetRequiredService<IRainbowColorizer>();
   private ILastRequestFactory? factory;
@@ -67,17 +54,23 @@ public class LastRequestManager(ILRLocale messages, IServiceProvider provider)
   public bool ShouldBlockDamage(CCSPlayerController victim, CCSPlayerController? attacker) {
     if (!IsLREnabled) return false;
     if (attacker == null || !attacker.IsReal()) return false;
+
     var victimLR = ((ILastRequestManager)this).GetActiveLR(victim);
     var attackerLR = ((ILastRequestManager)this).GetActiveLR(attacker);
-    if (victimLR == null && attackerLR == null) return false;
-    if (victimLR == null != (attackerLR == null)) {
+
+    // Schutz: Wenn einer im LR ist, der andere aber nicht -> Block
+    if (victimLR != attackerLR) {
       messages.DamageBlockedInsideLastRequest.ToCenter(attacker);
       return true;
     }
-    if (victimLR == null) return false;
-    if (victimLR.Prisoner.Slot == attacker.Slot || victimLR.Guard.Slot == attacker.Slot) return false;
-    messages.DamageBlockedNotInSameLR.ToCenter(attacker);
-    return true;
+
+    // Wenn beide im selben LR sind, prüfen ob sie Gegner sind
+    if (victimLR != null) {
+      if (victimLR.Prisoner.Slot == attacker.Slot || victimLR.Guard.Slot == attacker.Slot) return false;
+      messages.DamageBlockedNotInSameLR.ToCenter(attacker);
+      return true;
+    }
+    return false;
   }
 
   public void Start(BasePlugin basePlugin) {
@@ -86,6 +79,17 @@ public class LastRequestManager(ILRLocale messages, IServiceProvider provider)
         var stats = API.Gangs.Services.GetService<IStatManager>();
         stats?.Stats.Add(new LRStat());
     }
+
+    // FIX: NoBlock für die gesamte Runde (beim Spawn aktiviert)
+    basePlugin.RegisterEventHandler<EventPlayerSpawn>((@event, info) => {
+        var player = @event.Userid;
+        if (player != null && player.IsValid && player.PlayerPawn.Value != null) {
+            player.PlayerPawn.Value.Collision.CollisionGroup = 11;
+            player.PlayerPawn.Value.Collision.CollisionAttribute.CollisionGroup = 11;
+        }
+        return HookResult.Continue;
+    });
+
     basePlugin.RegisterListener<Listeners.OnEntityParentChanged>(OnDrop);
     VirtualFunctions.CCSPlayer_ItemServices_CanAcquireFunc.Hook(OnCanAcquire, HookMode.Pre);
   }
@@ -104,14 +108,7 @@ public class LastRequestManager(ILRLocale messages, IServiceProvider provider)
     foreach (var player in Utilities.GetPlayers()) {
       if (!player.PawnIsAlive) continue;
 
-      // FIX: NoBlock / Kollision aus
-      if (player.PlayerPawn.Value != null) {
-          player.PlayerPawn.Value.Collision.CollisionGroup = 11;
-          player.PlayerPawn.Value.Collision.CollisionAttribute.CollisionGroup = 11;
-      }
-
       if (player.Team == CsTeam.Terrorist) {
-          // FIX: Messer-Zwang für Gefangene
           player.RemoveWeapons();
           player.GiveNamedItem("weapon_knife");
           player.ExecuteClientCommandFromServer("css_lr");
@@ -120,7 +117,7 @@ public class LastRequestManager(ILRLocale messages, IServiceProvider provider)
   }
 
   public bool InitiateLastRequest(CCSPlayerController prisoner, CCSPlayerController guard, LRType type) {
-    // FIX: Beide kriegen Messer fürs Duell
+    // FIX: Waffen-Reset bei Duell-Start
     prisoner.RemoveWeapons(); prisoner.GiveNamedItem("weapon_knife");
     guard.RemoveWeapons(); guard.GiveNamedItem("weapon_knife");
 
