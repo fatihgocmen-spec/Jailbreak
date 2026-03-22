@@ -28,7 +28,7 @@ public class C4Behavior(IC4Locale ic4Locale, IRebelService rebelService,
   IServiceProvider provider) : IPluginBehavior, IC4Service {
   public static readonly FakeConVar<bool> CV_GIVE_BOMB = new("css_jb_c4_give",
     "Whether to give a random prisoner a bomb at the beginning of the round.",
-    true);
+    false);
 
   public static readonly FakeConVar<float> CV_C4_DELAY = new("css_jb_c4_delay",
     "Time in seconds that the bomb takes to explode", .75f,
