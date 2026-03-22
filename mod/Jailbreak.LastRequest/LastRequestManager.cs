@@ -154,4 +154,30 @@ public class LastRequestManager(ILRLocale messages, IServiceProvider provider)
     if (((ILastRequestManager)this).GetActiveLR(player) != null) return HookResult.Handled;
     return HookResult.Continue;
   }
-}
+}  public void Start(BasePlugin basePlugin) {
+    factory = provider.GetRequiredService<ILastRequestFactory>();
+    
+    // 1. NoBlock & Waffen-Strip (Jede Runde beim Spawn)
+    basePlugin.RegisterEventHandler<EventPlayerSpawn>((@event, info) => {
+        var player = @event.Userid;
+        if (player != null && player.IsValid && player.PlayerPawn.Value != null) {
+            // Kollision aus (NoBlock)
+            player.PlayerPawn.Value.Collision.CollisionGroup = 11;
+            player.PlayerPawn.Value.Collision.CollisionAttribute.CollisionGroup = 11;
+
+            // ALLES weg aus der Vorrunde
+            player.RemoveWeapons();
+            player.GiveNamedItem("weapon_knife");
+        }
+        return HookResult.Continue;
+    });
+
+    // 2. Bestehende Funktionen (Gangs & Listeners)
+    if (API.Gangs != null) {
+        var stats = API.Gangs.Services.GetService<IStatManager>();
+        stats?.Stats.Add(new LRStat());
+    }
+    basePlugin.RegisterListener<Listeners.OnEntityParentChanged>(OnDrop);
+    VirtualFunctions.CCSPlayer_ItemServices_CanAcquireFunc.Hook(OnCanAcquire, HookMode.Pre);
+  }
+
